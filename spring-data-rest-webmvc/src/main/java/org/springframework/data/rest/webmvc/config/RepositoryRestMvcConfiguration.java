@@ -22,11 +22,13 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.springframework.beans.factory.BeanCreationException;
 import org.springframework.beans.factory.BeanFactoryUtils;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.config.PropertiesFactoryBean;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
@@ -38,6 +40,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.context.support.MessageSourceAccessor;
 import org.springframework.context.support.ReloadableResourceBundleMessageSource;
 import org.springframework.core.convert.support.ConfigurableConversionService;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.geo.Distance;
 import org.springframework.data.geo.GeoModule;
@@ -47,6 +50,7 @@ import org.springframework.data.mapping.context.PersistentEntities;
 import org.springframework.data.repository.support.DomainClassConverter;
 import org.springframework.data.repository.support.Repositories;
 import org.springframework.data.rest.core.UriToEntityConverter;
+import org.springframework.data.rest.core.config.MetadataConfiguration;
 import org.springframework.data.rest.core.config.Projection;
 import org.springframework.data.rest.core.config.ProjectionDefinitionConfiguration;
 import org.springframework.data.rest.core.config.RepositoryRestConfiguration;
@@ -66,6 +70,10 @@ import org.springframework.data.rest.webmvc.RepositoryRestController;
 import org.springframework.data.rest.webmvc.RepositoryRestHandlerAdapter;
 import org.springframework.data.rest.webmvc.RepositoryRestHandlerMapping;
 import org.springframework.data.rest.webmvc.ServerHttpRequestMethodArgumentResolver;
+import org.springframework.data.rest.webmvc.alps.AlpsController;
+import org.springframework.data.rest.webmvc.alps.AlpsJsonHttpMessageConverter;
+import org.springframework.data.rest.webmvc.alps.AlpsResourceProcessor;
+import org.springframework.data.rest.webmvc.alps.RootResourceInformationToAlpsDescriptorConverter;
 import org.springframework.data.rest.webmvc.convert.StringToDistanceConverter;
 import org.springframework.data.rest.webmvc.convert.StringToPointConverter;
 import org.springframework.data.rest.webmvc.convert.UriListHttpMessageConverter;
@@ -136,7 +144,7 @@ public class RepositoryRestMvcConfiguration extends HateoasAwareSpringDataWebCon
 
 	@Autowired ListableBeanFactory beanFactory;
 
-	@Autowired(required = false) List<ResourceProcessor<?>> resourceProcessors = Collections.emptyList();
+	// @Autowired(required = false) List<ResourceProcessor<?>> resourceProcessors = Collections.emptyList();
 	@Autowired(required = false) List<BackendIdConverter> idConverters = Collections.emptyList();
 
 	@Autowired(required = false) RelProvider relProvider;
@@ -236,9 +244,14 @@ public class RepositoryRestMvcConfiguration extends HateoasAwareSpringDataWebCon
 			configuration.addProjection(projection);
 		}
 
-		RepositoryRestConfiguration config = new RepositoryRestConfiguration(configuration);
+		RepositoryRestConfiguration config = new RepositoryRestConfiguration(configuration, metadataConfiguration());
 		configureRepositoryRestConfiguration(config);
 		return config;
+	}
+
+	@Bean
+	public MetadataConfiguration metadataConfiguration() {
+		return new MetadataConfiguration();
 	}
 
 	@Bean
@@ -347,11 +360,21 @@ public class RepositoryRestMvcConfiguration extends HateoasAwareSpringDataWebCon
 	@Bean
 	public MessageSourceAccessor resourceDescriptionMessageSourceAccessor() {
 
-		ReloadableResourceBundleMessageSource messageSource = new ReloadableResourceBundleMessageSource();
-		messageSource.setBasename("classpath:rest-messages");
-		messageSource.setUseCodeAsDefaultMessage(true);
+		try {
 
-		return new MessageSourceAccessor(messageSource);
+			PropertiesFactoryBean propertiesFactoryBean = new PropertiesFactoryBean();
+			propertiesFactoryBean.setLocation(new ClassPathResource("rest-default-messages.properties"));
+			propertiesFactoryBean.afterPropertiesSet();
+
+			ReloadableResourceBundleMessageSource messageSource = new ReloadableResourceBundleMessageSource();
+			messageSource.setBasename("classpath:rest-messages");
+			messageSource.setCommonMessages(propertiesFactoryBean.getObject());
+
+			return new MessageSourceAccessor(messageSource);
+
+		} catch (Exception o_O) {
+			throw new BeanCreationException("resourceDescriptionMessageSourceAccessor", "", o_O);
+		}
 	}
 
 	/**
@@ -441,7 +464,7 @@ public class RepositoryRestMvcConfiguration extends HateoasAwareSpringDataWebCon
 	 * @return
 	 */
 	@Bean
-	public RequestMappingHandlerAdapter repositoryExporterHandlerAdapter() {
+	public RequestMappingHandlerAdapter repositoryExporterHandlerAdapter(List<ResourceProcessor<?>> resourceProcessors) {
 
 		List<HttpMessageConverter<?>> messageConverters = defaultMessageConverters();
 		configureHttpMessageConverters(messageConverters);
@@ -466,6 +489,11 @@ public class RepositoryRestMvcConfiguration extends HateoasAwareSpringDataWebCon
 		mapping.setJpaHelper(jpaHelper());
 
 		return mapping;
+	}
+
+	@Bean
+	public RequestMappingHandlerMapping fallbackMapping() {
+		return new RequestMappingHandlerMapping();
 	}
 
 	@Bean
@@ -517,6 +545,10 @@ public class RepositoryRestMvcConfiguration extends HateoasAwareSpringDataWebCon
 
 		List<HttpMessageConverter<?>> messageConverters = new ArrayList<HttpMessageConverter<?>>();
 
+		if (config().metadataConfiguration().alpsEnabled()) {
+			messageConverters.add(new AlpsJsonHttpMessageConverter(alpsConverter()));
+		}
+
 		if (config().getDefaultMediaType().equals(MediaTypes.HAL_JSON)) {
 			messageConverters.add(halJacksonHttpMessageConverter());
 			messageConverters.add(jacksonHttpMessageConverter());
@@ -524,6 +556,7 @@ public class RepositoryRestMvcConfiguration extends HateoasAwareSpringDataWebCon
 			messageConverters.add(jacksonHttpMessageConverter());
 			messageConverters.add(halJacksonHttpMessageConverter());
 		}
+
 		messageConverters.add(uriListHttpMessageConverter());
 
 		return messageConverters;
@@ -612,6 +645,26 @@ public class RepositoryRestMvcConfiguration extends HateoasAwareSpringDataWebCon
 		}
 
 		return new AnnotatedTypeScanner(Projection.class).findTypes(packagesToScan);
+	}
+
+	//
+	// ALPS support
+	//
+
+	@Bean
+	public AlpsController alpsController() {
+		return new AlpsController(repositories(), resourceMappings(), metadataConfiguration());
+	}
+
+	@Bean
+	public RootResourceInformationToAlpsDescriptorConverter alpsConverter() {
+		return new RootResourceInformationToAlpsDescriptorConverter(resourceMappings(), repositories(),
+				persistentEntities(), entityLinks(), resourceDescriptionMessageSourceAccessor(), config(), objectMapper());
+	}
+
+	@Bean
+	public AlpsResourceProcessor alpsResourceProcessor() {
+		return new AlpsResourceProcessor(metadataConfiguration());
 	}
 
 	/**

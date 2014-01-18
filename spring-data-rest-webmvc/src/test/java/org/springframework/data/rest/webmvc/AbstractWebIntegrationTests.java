@@ -94,6 +94,10 @@ public abstract class AbstractWebIntegrationTests {
 		return request(link.expand().getHref());
 	}
 
+	protected MockHttpServletResponse request(Link link, MediaType mediaType) throws Exception {
+		return request(link.expand().getHref(), mediaType);
+	}
+
 	protected MockHttpServletResponse request(String href) throws Exception {
 		return request(href, DEFAULT_MEDIA_TYPE);
 	}
@@ -451,6 +455,24 @@ public abstract class AbstractWebIntegrationTests {
 				}
 			}
 		}
+	}
+
+	/**
+	 * @see DATAREST-230
+	 */
+	@Test
+	public void exposesDescriptionAsAlpsDocuments() throws Exception {
+
+		MediaType ALPS_MEDIA_TYPE = MediaType.valueOf("application/alps+json");
+
+		MockHttpServletResponse response = request("/");
+		Link profileLink = assertHasLinkWithRel("profile", response);
+
+		mvc.perform(//
+				get(profileLink.expand().getHref()).//
+						accept(ALPS_MEDIA_TYPE)).//
+				andExpect(status().isOk()).//
+				andExpect(content().contentType(ALPS_MEDIA_TYPE));
 	}
 
 	protected abstract Iterable<String> expectedRootLinkRels();
