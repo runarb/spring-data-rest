@@ -33,6 +33,7 @@ import org.springframework.data.rest.core.annotation.Description;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
  * An entity that represents a person.
@@ -44,7 +45,9 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 public class Person {
 
 	private Long id;
-	@Description("A person's first name") private String firstName;
+	@Description("A person's first name")
+    @JsonProperty("name")
+    private String firstName;
 	@Description("A person's last name") private String lastName;
 	@Description("A person's siblings") private List<Person> siblings = Collections.emptyList();
 	private Person father;

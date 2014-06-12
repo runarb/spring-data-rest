@@ -58,6 +58,7 @@ import com.fasterxml.jackson.databind.deser.SettableBeanProperty;
 import com.fasterxml.jackson.databind.deser.ValueInstantiator;
 import com.fasterxml.jackson.databind.deser.std.CollectionDeserializer;
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
+import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.databind.ser.BeanPropertyWriter;
 import com.fasterxml.jackson.databind.ser.BeanSerializerBuilder;
@@ -214,9 +215,16 @@ public class PersistentEntityJackson2Module extends SimpleModule {
 			List<BeanPropertyWriter> result = new ArrayList<BeanPropertyWriter>();
 
 			for (BeanPropertyWriter writer : builder.getProperties()) {
+                String realName = writer.getName();
+
+                for (BeanPropertyDefinition beanPropDef : beanDesc.findProperties()) {
+                    if (beanPropDef.getName().equals(writer.getName())) {
+                        realName = beanPropDef.getInternalName();
+                    }
+                }
 
 				// Skip exported associations
-				PersistentProperty<?> persistentProperty = entity.getPersistentProperty(writer.getName());
+				PersistentProperty<?> persistentProperty = entity.getPersistentProperty(realName);
 
 				if (persistentProperty == null) {
 					continue;

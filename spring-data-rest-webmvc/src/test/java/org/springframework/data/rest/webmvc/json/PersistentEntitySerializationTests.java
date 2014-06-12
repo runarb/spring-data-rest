@@ -122,6 +122,8 @@ public class PersistentEntitySerializationTests {
 
 		String s = writer.toString();
 
+        assertThat("firstName is serialized as 'name'", s, containsString("\"name\":\"John\""));
+
 		Link fatherLink = linkDiscoverer.findLinkWithRel("father", s);
 		assertThat(fatherLink.getHref(), endsWith(new UriTemplate("/{id}/father").expand(person.getId()).toString()));
 
